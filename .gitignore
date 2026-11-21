@@ -29,3 +29,6 @@ __pycache__/
 
 # Logs
 *.log
+
+# Generated Prisma client (regenerated on install)
+apps/api/src/generated/

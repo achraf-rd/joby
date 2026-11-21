@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node (api, web, contracts)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: joby
+          POSTGRES_PASSWORD: joby
+          POSTGRES_DB: joby
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U joby" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://joby:joby@localhost:5432/joby
+      INTERNAL_HMAC_SECRET: ci
+      JWT_ACCESS_SECRET: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v6
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter @joby/api prisma:deploy
+      - run: pnpm --filter @joby/api test:e2e
+      - run: pnpm build
+      - name: Contracts are up to date
+        run: pnpm contracts:check
+
+  python:
+    name: Python (agents)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/agents
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: joby
+          POSTGRES_PASSWORD: joby
+          POSTGRES_DB: joby
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U joby" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://joby:joby@localhost:5432/joby
+      INTERNAL_HMAC_SECRET: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy src tests
+      - run: uv run alembic upgrade head
+      - run: uv run alembic check
+      - run: uv run pytest
+
+  images:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp infra/.env.example infra/.env
+      - run: docker compose -f infra/docker-compose.yml build

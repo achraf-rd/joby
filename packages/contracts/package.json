@@ -1,0 +1,20 @@
+{
+  "name": "@joby/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "export:agents": "cd ../../services/agents && uv run joby-agents-export-openapi",
+    "export:api": "pnpm --filter @joby/api openapi:export",
+    "codegen": "openapi-typescript openapi/agents.json -o src/generated/agents.ts && openapi-typescript openapi/api.json -o src/generated/api.ts",
+    "generate": "pnpm export:agents && pnpm export:api && pnpm codegen",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3"
+  }
+}
