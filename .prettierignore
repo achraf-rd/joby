@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+services/
+docs/ARCHITECTURE.md
+**/routeTree.gen.ts
+packages/contracts/openapi/
+packages/contracts/src/generated/

@@ -1,0 +1,61 @@
+[project]
+name = "joby-agents"
+version = "0.1.0"
+description = "Joby agent service: internal FastAPI surface and LangGraph run worker"
+readme = "README.md"
+authors = [
+    { name = "Remote Agent", email = "157323348+achraf-rd@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.1",
+    "asyncpg>=0.32.0",
+    "fastapi>=0.165.0",
+    "langgraph>=1.2.24",
+    "langgraph-checkpoint-postgres>=3.2.1",
+    "psycopg[binary,pool]>=3.3.9",
+    "pydantic-settings>=2.16.3",
+    "sqlalchemy[asyncio]>=2.1.9",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+joby-agents-worker = "joby_agents.worker.main:main"
+joby-agents-export-openapi = "joby_agents.export_openapi:main"
+
+[build-system]
+requires = ["uv_build>=0.13.9,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "ruff>=0.17.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["migrations/"]
+
+[[tool.mypy.overrides]]
+module = ["langgraph.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]

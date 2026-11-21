@@ -1,0 +1,12 @@
+:80 {
+	# The SPA talks only to Nest (ARCHITECTURE §2).
+	handle_path /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

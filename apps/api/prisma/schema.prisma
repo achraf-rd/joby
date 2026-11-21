@@ -1,0 +1,326 @@
+// Product data owned by the NestJS API. Lives in the `app` schema; the Python
+// agent service owns the `agents` schema and never writes here (ARCHITECTURE §2, §6.1).
+// Every tenant-scoped table carries tenant_id (D15).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["app"]
+}
+
+enum UserRole {
+  owner
+  admin
+  member
+
+  @@schema("app")
+}
+
+enum RemotePreference {
+  any
+  remote
+  hybrid
+  onsite
+
+  @@schema("app")
+}
+
+enum MatchStatus {
+  new
+  saved
+  dismissed
+
+  @@schema("app")
+}
+
+enum RunStatus {
+  queued
+  running
+  awaiting_approval
+  completed
+  failed
+  cancelled
+
+  @@schema("app")
+}
+
+enum ApplicationStatus {
+  draft
+  awaiting_approval
+  approved
+  submitted
+  failed
+  rejected
+
+  @@schema("app")
+}
+
+enum ApplicationChannel {
+  email
+  ats_form
+  manual
+
+  @@schema("app")
+}
+
+enum FileKind {
+  cv_upload
+  cv_render
+  cover_letter
+  other
+
+  @@schema("app")
+}
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  plan      String   @default("free")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  users         User[]
+  profiles      Profile[]
+  preferences   Preference[]
+  opportunities Opportunity[]
+  matches       Match[]
+  runs          Run[]
+  applications  Application[]
+  files         File[]
+  usage         Usage[]
+
+  @@map("tenants")
+  @@schema("app")
+}
+
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  role            UserRole  @default(owner)
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz
+  tokenVersion    Int       @default(0) @map("token_version")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+  profiles      Profile[]
+  preference    Preference?
+  matches       Match[]
+  runs          Run[]
+  applications  Application[]
+
+  @@index([tenantId])
+  @@map("users")
+  @@schema("app")
+}
+
+model RefreshToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  familyId     String    @map("family_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz
+  replacedById String?   @map("replaced_by") @db.Uuid
+  userAgent    String?   @map("user_agent")
+  ip           String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+  @@schema("app")
+}
+
+model Profile {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  version     Int
+  /// Atomic, ID'd facts (roles, dates, achievements, skills). See ARCHITECTURE §4 anti-hallucination contract.
+  facts       Json     @db.JsonB
+  rawCvFileId String?  @map("raw_cv_file_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rawCv  File?  @relation(fields: [rawCvFileId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, version])
+  @@index([tenantId])
+  @@map("profiles")
+  @@schema("app")
+}
+
+model Preference {
+  userId    String           @id @map("user_id") @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  roles     String[]
+  locations String[]
+  remote    RemotePreference @default(any)
+  salaryMin Int?             @map("salary_min")
+  languages String[]
+  sources   String[]
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("preferences")
+  @@schema("app")
+}
+
+model Opportunity {
+  id          String                       @id @default(uuid()) @db.Uuid
+  tenantId    String                       @map("tenant_id") @db.Uuid
+  source      String
+  externalId  String                       @map("external_id")
+  url         String
+  company     String
+  title       String
+  location    String?
+  description String
+  postedAt    DateTime?                    @map("posted_at") @db.Timestamptz
+  /// Embedding dimension is provisional until the embedding model is chosen (ARCHITECTURE §12).
+  embedding   Unsupported("vector(1536)")?
+  dedupeHash  String                       @map("dedupe_hash")
+  createdAt   DateTime                     @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  matches      Match[]
+  applications Application[]
+
+  @@unique([tenantId, source, externalId])
+  @@index([tenantId, dedupeHash])
+  @@map("opportunities")
+  @@schema("app")
+}
+
+model Match {
+  tenantId      String      @map("tenant_id") @db.Uuid
+  userId        String      @map("user_id") @db.Uuid
+  opportunityId String      @map("opportunity_id") @db.Uuid
+  score         Float
+  rationale     String?
+  status        MatchStatus @default(new)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@id([userId, opportunityId])
+  @@index([tenantId])
+  @@map("matches")
+  @@schema("app")
+}
+
+/// Source of truth for run status shown to users (ARCHITECTURE §3.2). run id is generated here, not in Python.
+model Run {
+  id         String    @id @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  type       String
+  status     RunStatus @default(queued)
+  lastSeq    Int       @default(0) @map("last_seq")
+  startedAt  DateTime? @map("started_at") @db.Timestamptz
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz
+  error      String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events       RunEvent[]
+  applications Application[]
+  usage        Usage[]
+
+  @@index([tenantId, status])
+  @@map("runs")
+  @@schema("app")
+}
+
+model RunEvent {
+  runId String   @map("run_id") @db.Uuid
+  seq   Int
+  type  String
+  step  String?
+  data  Json     @db.JsonB
+  ts    DateTime @db.Timestamptz
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@id([runId, seq])
+  @@map("run_events")
+  @@schema("app")
+}
+
+model Application {
+  id            String              @id @default(uuid()) @db.Uuid
+  tenantId      String              @map("tenant_id") @db.Uuid
+  userId        String              @map("user_id") @db.Uuid
+  opportunityId String              @map("opportunity_id") @db.Uuid
+  runId         String?             @map("run_id") @db.Uuid
+  cvFileId      String?             @map("cv_file_id") @db.Uuid
+  letter        String?
+  validation    Json?               @db.JsonB
+  status        ApplicationStatus   @default(draft)
+  channel       ApplicationChannel?
+  submittedAt   DateTime?           @map("submitted_at") @db.Timestamptz
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  run         Run?        @relation(fields: [runId], references: [id], onDelete: SetNull)
+  cvFile      File?       @relation(fields: [cvFileId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@map("applications")
+  @@schema("app")
+}
+
+model File {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  key       String   @unique
+  mime      String
+  size      BigInt
+  kind      FileKind
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  profiles     Profile[]
+  applications Application[]
+
+  @@index([tenantId])
+  @@map("files")
+  @@schema("app")
+}
+
+model Usage {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  runId        String?  @map("run_id") @db.Uuid
+  model        String
+  inputTokens  Int      @map("input_tokens")
+  outputTokens Int      @map("output_tokens")
+  costUsd      Decimal  @map("cost_usd") @db.Decimal(12, 6)
+  ts           DateTime @default(now()) @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  run    Run?   @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, ts])
+  @@map("usage")
+  @@schema("app")
+}

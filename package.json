@@ -1,0 +1,23 @@
+{
+  "name": "joby",
+  "private": true,
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:api": "pnpm --filter @joby/api start:dev",
+    "dev:web": "pnpm --filter @joby/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "contracts:generate": "pnpm --filter @joby/contracts generate",
+    "contracts:check": "pnpm contracts:generate && git diff --exit-code -- packages/contracts"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2"
+  }
+}
